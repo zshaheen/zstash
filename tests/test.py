@@ -59,6 +59,9 @@ def exit():
     """
     Cleanup and stop running this script
     """
+    print('Dump of the database')
+    cmd = ['sqlite3', 'zstash_test/zstash/index.db', 'select * from files;']
+    output_hpss, err_hpss = run_cmd(cmd)
     cleanup()
     sys.exit()
 
@@ -99,10 +102,10 @@ output, err = run_cmd(cmd)
 str_in(output+err, 'Transferring file to HPSS')
 
 print('Running update on the newly created directory, nothing should happen')
-os.chdir('zstash_test')
-cmd = 'zstash update --hpss={}'.format(HPSS_PATH)
+#os.chdir('zstash_test')
+cmd = 'zstash update --hpss={} zstash_test'.format(HPSS_PATH)
 output, err = run_cmd(cmd)
-os.chdir('../')
+#os.chdir('../')
 str_in(output+err, 'Nothing to update')
 
 
@@ -112,10 +115,10 @@ if not os.path.exists('zstash_test/dir2'):
 write_file('zstash_test/dir2/file2.txt', 'file2 stuff')
 write_file('zstash_test/dir/file1.txt', 'file1 stuff with changes')
 
-os.chdir('zstash_test')
-cmd = 'zstash update --hpss={}'.format(HPSS_PATH)
+#os.chdir('zstash_test')
+cmd = 'zstash update --hpss={} zstash_test'.format(HPSS_PATH)
 output, err = run_cmd(cmd)
-os.chdir('../')
+#os.chdir('../')
 str_in(output+err, 'Transferring file to HPSS')
 # Make sure none of the old files are moved
 str_not_in(output+err, 'file0')
@@ -125,10 +128,10 @@ str_not_in(output+err, 'empty_dir')
 print('Testing the extract functionality')
 os.rename('zstash_test', 'zstash_test_backup')
 os.mkdir('zstash_test')
-os.chdir('zstash_test')
-cmd = 'zstash extract --hpss={}'.format(HPSS_PATH)
+#os.chdir('zstash_test')
+cmd = 'zstash extract --hpss={} zstash_test'.format(HPSS_PATH)
 output, err = run_cmd(cmd)
-os.chdir('../')
+#os.chdir('../')
 str_in(output+err, 'Transferring from HPSS')
 str_in(output+err, 'Extracting file0.txt')
 str_in(output+err, 'Extracting file0_hard.txt')
@@ -139,10 +142,10 @@ str_in(output+err, 'Extracting empty_dir')
 str_in(output+err, 'Extracting dir2/file2.txt')
 
 print('Running update on the newly extracted directory, nothing should happen')
-os.chdir('zstash_test')
-cmd = 'zstash update --hpss={}'.format(HPSS_PATH)
+#os.chdir('zstash_test')
+cmd = 'zstash update --hpss={} zstash_test'.format(HPSS_PATH)
 output, err = run_cmd(cmd)
-os.chdir('../')
+#os.chdir('../')
 str_in(output+err, 'Nothing to update')
 
 print('Verifying the data from database with the actual files')

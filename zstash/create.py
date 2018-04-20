@@ -159,6 +159,7 @@ create table files (
         files = excludeFiles(args.exclude, files)
 
     # Add files to archive
+    print('CREATE FILES: {}'.format(files))
     failures = addfiles(cur, con, -1, files)
 
     # Close database and transfer to HPSS. Always keep local copy

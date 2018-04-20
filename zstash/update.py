@@ -16,8 +16,9 @@ def update():
 
     # Parser
     parser = argparse.ArgumentParser(
-        usage='zstash update [<args>]',
+        usage='zstash update [<args>] path',
         description='Update an existing zstash archive')
+    ###parser.add_argument('path', type=str, help='root directory to archive')
     required = parser.add_argument_group('required named arguments')
     optional = parser.add_argument_group('optional named arguments')
     optional.add_argument('--hpss', type=str, help='path to HPSS storage')
@@ -37,6 +38,7 @@ def update():
     # Open database
     logging.debug('Opening index database')
     if not os.path.exists(DB_FILENAME):
+        print('DATABASE DOES NOT EXIST IN UPDATE')
         # will need to retrieve from HPSS
         if args.hpss is not None:
             config.hpss = args.hpss
@@ -56,6 +58,7 @@ def update():
             cur.execute(u"select value from config where arg=?", (attr,))
             value = cur.fetchone()[0]
             setattr(config, attr, value)
+    config.path = os.path.abspath(args.path)
     config.maxsize = int(config.maxsize)
     config.keep = bool(int(config.keep))
 
@@ -70,10 +73,18 @@ def update():
     logging.debug('Max size  : %i' % (config.maxsize))
     logging.debug('Keep local tar files  : %s' % (config.keep))
 
+    # Make sure input path exists and is a directory
+    logging.debug('Making sure input path exists and is a directory')
+    if not os.path.isdir(config.path):
+        logging.error('Input path should be a directory: %s', config.path)
+        raise Exception
+
     # List of files
     logging.info('Gathering list of files to archive')
+    ###os.chdir(config.path)
     files = []
     for root, dirnames, filenames in os.walk('.'):
+    #for root, dirnames, filenames in os.walk(config.path):
         # Empty directory
         if not dirnames and not filenames:
             files.append((root, ''))
@@ -88,6 +99,8 @@ def update():
     files = [os.path.normpath(os.path.join(x[0], x[1]))
              for x in files if x[0] != os.path.join('.', CACHE)]
 
+    print('UPDATE files: {}'.format(files))
+
     # Eliminate files based on exclude pattern
     if args.exclude is not None:
         files = excludeFiles(args.exclude, files)
@@ -95,7 +108,7 @@ def update():
     # Eliminate files that are already archived and up to date
     newfiles = []
     for file in files:
-
+        print('newfiles, examining: {}'.format(file))
         statinfo = os.lstat(file)
         mdtime_new = datetime.utcfromtimestamp(statinfo.st_mtime)
         mode = statinfo.st_mode
@@ -113,14 +126,15 @@ def update():
                 break
             size = match[2]
             mdtime = match[3]
-
+            print('size, size_new: {}, {}'.format(size, size_new))
+            print('abs((mdtime_new-mdtime).total_seconds()), TIME_TOL: {}, {}'.format(abs((mdtime_new-mdtime).total_seconds()), TIME_TOL))
             if (size_new == size) \
               and (abs((mdtime_new-mdtime).total_seconds()) <= TIME_TOL):
                 # File exists with same size and modification time within tolerance
                 new = False
                 break
             # print(file,size_new,size,mdtime_new,mdtime)
-        if (new):
+        if new:
             newfiles.append(file)
 
     # Anything to do?
@@ -143,6 +157,7 @@ def update():
         itar = max(itar, int(tfile[0][0:6], 16))
 
     # Add files
+    print('UPDATE new files: {}'.format(newfiles))
     failures = addfiles(cur, con, itar, newfiles)
 
     # Close database and transfer to HPSS. Always keep local copy
