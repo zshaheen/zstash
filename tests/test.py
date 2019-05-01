@@ -19,6 +19,14 @@ def run_cmd(cmd):
         cmd = cmd.split()
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output, err = p.communicate()
+
+    # When running in Python 3, the output of subprocess.Popen.communicate()
+    # is a bytes object. We need to convert it to a string.
+    if isinstance(output, bytes):
+        output = output.decode("utf-8")
+    if isinstance(err, bytes):
+        err = err.decode("utf-8")
+
     print(output)
     print(err)
     return output, err
@@ -52,6 +60,8 @@ def cleanup():
         shutil.rmtree('zstash_test')
     if os.path.exists('zstash_test_backup'):
         shutil.rmtree('zstash_test_backup')
+    if os.path.exists('zstash'):
+        shutil.rmtree('zstash')
     cmd = 'hsi rm -R {}'.format(HPSS_PATH)
     run_cmd(cmd)
 
@@ -62,9 +72,9 @@ def stop():
     cleanup()
     sys.exit()
 
-
-# TODO: Change the hpss directory to a dir that's accessable to everyone.
-HPSS_PATH='/home/z/zshaheen/zstash_test'
+# Makes this in the home dir of the user on HPSS.
+# Ex: /home/z/zshaheen/zstash_test
+HPSS_PATH='zstash_test'
 
 # Create files and directories
 print('Creating files.')
@@ -92,21 +102,13 @@ if not os.path.lexists('zstash_test/file0_soft_bad.txt'):
 if not os.path.lexists('zstash_test/file0_hard.txt'):
     os.link('zstash_test/file0.txt', 'zstash_test/file0_hard.txt')
 
+
 print('Adding files to HPSS')
 cmd = 'zstash create --hpss={} zstash_test'.format(HPSS_PATH)
 output, err = run_cmd(cmd)
 str_in(output+err, 'Transferring file to HPSS')
 str_not_in(output+err, 'ERROR')
 
-print('Testing ls')
-cmd = 'zstash ls --hpss={}'.format(HPSS_PATH)
-output, err = run_cmd(cmd)
-str_in(output+err, 'file0.txt')
-str_not_in(output+err, 'ERROR')
-cmd = 'zstash ls -l --hpss={}'.format(HPSS_PATH)
-output, err = run_cmd(cmd)
-str_in(output+err, 'tar')
-str_not_in(output+err, 'ERROR')
 
 print('Testing chgrp')
 GROUP = 'acme'
@@ -125,6 +127,7 @@ output, err = run_cmd(cmd)
 str_in(output+err, 'acme')
 str_not_in(output+err, 'ERROR')
 
+
 print('Running update on the newly created directory, nothing should happen')
 os.chdir('zstash_test')
 cmd = 'zstash update --hpss={}'.format(HPSS_PATH)
@@ -132,6 +135,7 @@ output, err = run_cmd(cmd)
 os.chdir('../')
 str_in(output+err, 'Nothing to update')
 str_not_in(output+err, 'ERROR')
+
 
 print('Testing update with an actual change')
 if not os.path.exists('zstash_test/dir2'):
@@ -145,16 +149,61 @@ output, err = run_cmd(cmd)
 os.chdir('../')
 str_in(output+err, 'Transferring file to HPSS')
 str_not_in(output+err, 'ERROR')
-# Make sure none of the old files are moved
+# Make sure none of the old files are moved.
 str_not_in(output+err, 'file0')
 str_not_in(output+err, 'file_empty')
 str_not_in(output+err, 'empty_dir')
 str_not_in(output+err, 'ERROR')
 
+
+print('Adding many more files to the HPSS archive.')
+msg = 'This is because we need many separate tar archives'
+msg += ' for testing zstash extract/check with parallel.'
+print(msg)
+write_file('zstash_test/file3.txt', 'file3 stuff')
+os.chdir('zstash_test')
+cmd = 'zstash update --hpss={}'.format(HPSS_PATH)
+output, err = run_cmd(cmd)
+os.chdir('../')
+write_file('zstash_test/file4.txt', 'file4 stuff')
+os.chdir('zstash_test')
+cmd = 'zstash update --hpss={}'.format(HPSS_PATH)
+output, err = run_cmd(cmd)
+os.chdir('../')
+write_file('zstash_test/file5.txt', 'file5 stuff')
+os.chdir('zstash_test')
+cmd = 'zstash update --hpss={}'.format(HPSS_PATH)
+output, err = run_cmd(cmd)
+os.chdir('../')
+
+
+print('Testing ls')
+cmd = 'zstash ls --hpss={}'.format(HPSS_PATH)
+output, err = run_cmd(cmd)
+str_in(output+err, 'file0.txt')
+str_not_in(output+err, 'ERROR')
+cmd = 'zstash ls -l --hpss={}'.format(HPSS_PATH)
+output, err = run_cmd(cmd)
+str_in(output+err, 'tar')
+str_not_in(output+err, 'ERROR')
+
+
 print('Testing the checking functionality')
 cmd = 'zstash check --hpss={}'.format(HPSS_PATH)
 output, err = run_cmd(cmd)
+str_in(output+err, 'Transferring from HPSS')
+str_in(output+err, 'Checking file0.txt')
+str_in(output+err, 'Checking file0_hard.txt')
+str_in(output+err, 'Checking file0_soft.txt')
+str_in(output+err, 'Checking file_empty.txt')
+str_in(output+err, 'Checking dir/file1.txt')
+str_in(output+err, 'Checking empty_dir')
+str_in(output+err, 'Checking dir2/file2.txt')
+str_in(output+err, 'Checking file3.txt')
+str_in(output+err, 'Checking file4.txt')
+str_in(output+err, 'Checking file5.txt')
 str_not_in(output+err, 'ERROR')
+
 
 print('Testing the extract functionality')
 os.rename('zstash_test', 'zstash_test_backup')
@@ -171,19 +220,137 @@ str_in(output+err, 'Extracting file_empty.txt')
 str_in(output+err, 'Extracting dir/file1.txt')
 str_in(output+err, 'Extracting empty_dir')
 str_in(output+err, 'Extracting dir2/file2.txt')
+str_in(output+err, 'Extracting file3.txt')
+str_in(output+err, 'Extracting file4.txt')
+str_in(output+err, 'Extracting file5.txt')
 str_not_in(output+err, 'ERROR')
+str_not_in(output+err, 'Not extracting')
 
-print('Running update on the newly extracted directory, nothing should happen')
+print('Testing the extract functionality again, nothing should happen')
 os.chdir('zstash_test')
-cmd = 'zstash update --hpss={}'.format(HPSS_PATH)
+cmd = 'zstash extract --hpss={}'.format(HPSS_PATH)
 output, err = run_cmd(cmd)
 os.chdir('../')
-str_in(output+err, 'Nothing to update')
+str_in(output+err, 'Not extracting file0.txt')
+str_in(output+err, 'Not extracting file0_hard.txt')
+# It's okay to extract the symlinks.
+str_not_in(output+err, 'Not extracting file0_soft.txt')
+str_in(output+err, 'Not extracting file_empty.txt')
+str_in(output+err, 'Not extracting dir/file1.txt')
+# It's okay to extract empty dirs.
+str_not_in(output+err, 'Not extracting empty_dir')
+str_in(output+err, 'Not extracting dir2/file2.txt')
+str_in(output+err, 'Not extracting file3.txt')
+str_in(output+err, 'Not extracting file4.txt')
+str_in(output+err, 'Not extracting file5.txt')
 str_not_in(output+err, 'ERROR')
+
+
+print('Deleting the extracted files and doing it again in parallel.')
+shutil.rmtree('zstash_test')
+os.mkdir('zstash_test')
+os.chdir('zstash_test')
+cmd = 'zstash extract --hpss={} --workers=3'.format(HPSS_PATH)
+output, err = run_cmd(cmd)
+os.chdir('../')
+str_in(output+err, 'Transferring from HPSS')
+str_in(output+err, 'Extracting file0.txt')
+str_in(output+err, 'Extracting file0_hard.txt')
+str_in(output+err, 'Extracting file0_soft.txt')
+str_in(output+err, 'Extracting file_empty.txt')
+str_in(output+err, 'Extracting dir/file1.txt')
+str_in(output+err, 'Extracting empty_dir')
+str_in(output+err, 'Extracting dir2/file2.txt')
+str_in(output+err, 'Extracting file3.txt')
+str_in(output+err, 'Extracting file4.txt')
+str_in(output+err, 'Extracting file5.txt')
+str_not_in(output+err, 'ERROR')
+str_not_in(output+err, 'Not extracting')
+# We don't check that the printing was done in order.
+# For some reason it seems like since we redirect stdout when
+# running the process, it causes the output to not be in order.
+# When you manually do it, it's all fine.
+
+# tar_order = []
+# console_output = output+err
+# for word in console_output.replace('\n', ' ').split(' '):
+#     if '.tar' in word:
+#         tar_order.append(word)
+# if tar_order != sorted(tar_order):
+#     print('*'*40)
+#     print('The tars were printed in this order: {}'.format(tar_order))
+#     print('When it should have been in this order: {}'.format(sorted(tar_order)))
+#     print('*'*40)
+#     stop()
+
+
+print('Checking the files again in parallel.')
+os.chdir('zstash_test')
+cmd = 'zstash check --hpss={} --workers=3'.format(HPSS_PATH)
+output, err = run_cmd(cmd)
+os.chdir('../')
+str_in(output+err, 'Checking file0.txt')
+str_in(output+err, 'Checking file0_hard.txt')
+str_in(output+err, 'Checking file0_soft.txt')
+str_in(output+err, 'Checking file_empty.txt')
+str_in(output+err, 'Checking dir/file1.txt')
+str_in(output+err, 'Checking empty_dir')
+str_in(output+err, 'Checking dir2/file2.txt')
+str_in(output+err, 'Checking file3.txt')
+str_in(output+err, 'Checking file4.txt')
+str_in(output+err, 'Checking file5.txt')
+str_not_in(output+err, 'ERROR')
+
+
+print('Causing MD5 mismatch errors and checking the files.')
+os.chdir('zstash_test')
+shutil.copy('zstash/index.db', 'zstash/index_old.db')
+print('Messing up the MD5 of all of the files with an even id.')
+cmd = ['sqlite3', 'zstash/index.db', 'UPDATE files SET md5 = 0 WHERE id % 2 = 0;']
+run_cmd(cmd)
+cmd = 'zstash check --hpss={}'.format(HPSS_PATH)
+output, err = run_cmd(cmd)
+str_in(output+err, 'md5 mismatch for: dir/file1.txt')
+str_in(output+err, 'md5 mismatch for: file3.txt')
+str_in(output+err, 'md5 mismatch for: file3.txt')
+str_in(output+err, 'ERROR: 000001.tar')
+str_in(output+err, 'ERROR: 000004.tar')
+str_in(output+err, 'ERROR: 000002.tar')
+str_not_in(output+err, 'ERROR: 000000.tar')
+str_not_in(output+err, 'ERROR: 000003.tar')
+str_not_in(output+err, 'ERROR: 000005.tar')
+# Put the original index.db back.
+os.remove('zstash/index.db')
+shutil.copy('zstash/index_old.db', 'zstash/index.db')
+os.chdir('../')
+
+
+print('Causing MD5 mismatch errors and checking the files in parallel.')
+os.chdir('zstash_test')
+shutil.copy('zstash/index.db', 'zstash/index_old.db')
+print('Messing up the MD5 of all of the files with an even id.')
+cmd = ['sqlite3', 'zstash/index.db', 'UPDATE files SET md5 = 0 WHERE id % 2 = 0;']
+run_cmd(cmd)
+cmd = 'zstash check --hpss={} --workers=3'.format(HPSS_PATH)
+output, err = run_cmd(cmd)
+str_in(output+err, 'md5 mismatch for: dir/file1.txt')
+str_in(output+err, 'md5 mismatch for: file3.txt')
+str_in(output+err, 'md5 mismatch for: file3.txt')
+str_in(output+err, 'ERROR: 000001.tar')
+str_in(output+err, 'ERROR: 000004.tar')
+str_in(output+err, 'ERROR: 000002.tar')
+str_not_in(output+err, 'ERROR: 000000.tar')
+str_not_in(output+err, 'ERROR: 000003.tar')
+str_not_in(output+err, 'ERROR: 000005.tar')
+# Put the original index.db back.
+os.remove('zstash/index.db')
+shutil.copy('zstash/index_old.db', 'zstash/index.db')
+os.chdir('../')
+
 
 print('Verifying the data from database with the actual files')
 # Checksums from HPSS
-cmd = ['sqlite3', 'zstash_test/zstash/index.db', 'select md5, name from files;']
+cmd = ['sqlite3', 'zstash_test/zstash/index.db', 'SELECT md5, name FROM files;']
 output_hpss, err_hpss = run_cmd(cmd)
 hpss_dict = {}
 
@@ -209,6 +376,7 @@ for l in output_local.split('\n'):
 print('filename|HPSS hash|local file hash')
 for k in local_dict:
     print('{}|{}|{}'.format(k, hpss_dict[k], local_dict[k]))
+
 
 cleanup()
 print('*'*40)
